@@ -1,0 +1,54 @@
+name: Release to Maven Central
+
+# Runs when a version tag (v0.1.0, ...) reaches this repository. The monorepo
+# pushes it with `scripts/split-to-github.sh v<version>`.
+#
+# Maven Central has no trusted publishing, so this needs four repository
+# secrets, set once in Settings > Secrets and variables > Actions:
+#
+#   CENTRAL_USERNAME / CENTRAL_PASSWORD  a user token from central.sonatype.com
+#                                        (account > Generate User Token), for a
+#                                        portal account that owns the verified
+#                                        namespace com.sendclipper
+#   GPG_PRIVATE_KEY                      an ASCII-armoured secret key
+#                                        (gpg --armor --export-secret-keys <id>)
+#                                        whose public half is on keyserver.ubuntu.com
+#   GPG_PASSPHRASE                       its passphrase
+#
+# A version on Maven Central is permanent: it can never be replaced or removed.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+      - name: Tag matches the pom and Version.java
+        run: |
+          pom="v$(mvn -q -B help:evaluate -Dexpression=project.version -DforceStdout)"
+          code="v$(sed -n 's/.*VERSION = "\(.*\)";/\1/p' src/main/java/com/sendclipper/Version.java)"
+          if [ "$pom" != "$GITHUB_REF_NAME" ] || [ "$code" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match pom $pom / Version.java $code" >&2
+            exit 1
+          fi
+      - run: mvn -B -Prelease deploy
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}

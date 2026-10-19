@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: ['11', '17', '21']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+      # Tests, -Xlint:all -Werror, and the sources and Javadoc jars Maven Central requires.
+      - run: mvn -B verify
+      - name: A version tag matches the pom and Version.java
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          pom="v$(mvn -q -B help:evaluate -Dexpression=project.version -DforceStdout)"
+          code="v$(sed -n 's/.*VERSION = "\(.*\)";/\1/p' src/main/java/com/sendclipper/Version.java)"
+          if [ "$pom" != "$GITHUB_REF_NAME" ] || [ "$code" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match pom $pom / Version.java $code" >&2
+            exit 1
+          fi
